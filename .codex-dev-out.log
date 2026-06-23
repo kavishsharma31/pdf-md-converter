@@ -1,0 +1,34 @@
+
+> pdf-md-converter@0.1.0 dev
+> next dev --hostname 127.0.0.1 --port 3000
+
+▲ Next.js 16.2.9 (Turbopack)
+- Local:         http://127.0.0.1:3000
+- Network:       http://127.0.0.1:3000
+✓ Ready in 1110ms
+
+ GET / 200 in 490ms (next.js: 280ms, application-code: 210ms)
+ GET / 200 in 120ms (next.js: 15ms, application-code: 105ms)
+ POST /api/convert 400 in 491ms (next.js: 458ms, application-code: 32ms)
+ POST /api/convert 400 in 15ms (next.js: 4ms, application-code: 11ms)
+ POST /api/convert 400 in 15ms (next.js: 4ms, application-code: 10ms)
+ POST /api/convert 422 in 189ms (next.js: 4ms, application-code: 185ms)
+ POST /api/convert 200 in 28ms (next.js: 5ms, application-code: 23ms)
+ GET / 200 in 285ms (next.js: 125ms, application-code: 160ms)
+ GET / 200 in 155ms (next.js: 16ms, application-code: 139ms)
+ GET / 200 in 219ms (next.js: 76ms, application-code: 142ms)
+ GET / 200 in 173ms (next.js: 31ms, application-code: 142ms)
+✓ Compiled in 107ms
+ GET / 200 in 288ms (next.js: 164ms, application-code: 124ms)
+✓ Compiled in 90ms
+ GET / 200 in 256ms (next.js: 171ms, application-code: 85ms)
+ GET / 200 in 283ms (next.js: 174ms, application-code: 109ms)
+ GET / 200 in 207ms (next.js: 122ms, application-code: 85ms)
+✓ Compiled in 177ms
+ GET / 200 in 1045ms (next.js: 442ms, application-code: 603ms)
+ GET / 200 in 125ms (next.js: 15ms, application-code: 110ms)
+ GET / 200 in 559ms (next.js: 84ms, application-code: 475ms)
+ GET / 200 in 212ms (next.js: 21ms, application-code: 191ms)
+ GET / 200 in 574ms (next.js: 19ms, application-code: 556ms)
+✓ Compiled in 178ms
+ GET / 200 in 70ms (next.js: 8ms, application-code: 62ms)
