@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@types/formidable": "^3.5.1",
+    "@vercel/blob": "^2.5.0",
     "formidable": "^3.5.4",
     "next": "16.2.9",
     "pdf-parse": "^2.4.5",

@@ -10,24 +10,15 @@ import { ProgressBar } from "@/components/ProgressBar";
 import { StatPill } from "@/components/StatPill";
 import { Toast } from "@/components/Toast";
 import { UploadZone } from "@/components/UploadZone";
-
-type UiOptions = {
-  preserveHeadings: boolean;
-  stripWhitespace: boolean;
-  addPageMarkers: boolean;
-  includeMetadata: boolean;
-};
-
-type ConvertResponse = {
-  markdown: string;
-  pages: number;
-  pdfSizeKB: number;
-  mdSizeKB: number;
-};
-
-type ErrorResponse = {
-  error: string;
-};
+import { uploadPdfToBlob } from "@/lib/blob/uploadPdfToBlob";
+import {
+  convertBlobPdf,
+  type ConvertOptions,
+} from "@/lib/pdf/convertBlobPdf";
+import {
+  BLOB_UPLOAD_TOO_LARGE_MESSAGE,
+  MAX_BLOB_UPLOAD_BYTES,
+} from "@/lib/pdf/uploadLimits";
 
 type Stats = {
   pdfSize: string;
@@ -41,7 +32,7 @@ type ToastState = {
   type: "success" | "error";
 } | null;
 
-const defaultOptions: UiOptions = {
+const defaultOptions: ConvertOptions = {
   preserveHeadings: true,
   stripWhitespace: true,
   addPageMarkers: true,
@@ -55,12 +46,10 @@ const defaultStats: Stats = {
   pages: "\u2014",
 };
 
-const maxPdfSizeBytes = 4 * 1024 * 1024;
 const validPdfMessage = "Please upload a valid PDF file.";
 const emptyFileMessage = "This file appears to be empty.";
-const oversizedPdfMessage = "PDF is too large. Please upload a file under 4MB.";
 
-const optionLabels: Array<{ key: keyof UiOptions; label: string }> = [
+const optionLabels: Array<{ key: keyof ConvertOptions; label: string }> = [
   { key: "preserveHeadings", label: "Preserve headings" },
   { key: "stripWhitespace", label: "Strip excess whitespace" },
   { key: "addPageMarkers", label: "Add page markers" },
@@ -71,7 +60,11 @@ function isPdfFile(file: File): boolean {
   return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
 }
 
-function getFileValidationError(file: File | null): string | null {
+function getFileValidationError(
+  file: File | null,
+  maximumSizeInBytes: number,
+  oversizedMessage: string,
+): string | null {
   if (!file) {
     return validPdfMessage;
   }
@@ -84,8 +77,8 @@ function getFileValidationError(file: File | null): string | null {
     return emptyFileMessage;
   }
 
-  if (file.size > maxPdfSizeBytes) {
-    return oversizedPdfMessage;
+  if (file.size > maximumSizeInBytes) {
+    return oversizedMessage;
   }
 
   return null;
@@ -112,16 +105,12 @@ function estimateTokensSaved(pdfSizeKB: number, mdSizeKB: number): string {
   return tokensSaved.toLocaleString();
 }
 
-function getPendingProgressLabel(progress: number): string {
-  if (progress < 35) {
+function getConversionProgressLabel(progress: number): string {
+  if (progress < 72) {
     return "Extracting PDF text\u2026";
   }
 
-  if (progress < 68) {
-    return "Cleaning Markdown\u2026";
-  }
-
-  return "Calculating savings\u2026";
+  return "Cleaning Markdown\u2026";
 }
 
 function deriveMarkdownFilename(file: File | null): string {
@@ -136,7 +125,7 @@ function deriveMarkdownFilename(file: File | null): string {
 
 export default function Home() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [options, setOptions] = useState<UiOptions>(defaultOptions);
+  const [options, setOptions] = useState<ConvertOptions>(defaultOptions);
   const [stats, setStats] = useState<Stats>(defaultStats);
   const [markdown, setMarkdown] = useState("");
   const [error, setError] = useState("");
@@ -146,8 +135,9 @@ export default function Home() {
   const [toast, setToast] = useState<ToastState>(null);
   const progressTimer = useRef<number | null>(null);
   const toastTimer = useRef<number | null>(null);
+  const isBusy = isProcessing;
   const outputFilename = deriveMarkdownFilename(selectedFile);
-  const outputActionsDisabled = isProcessing || markdown.trim().length === 0;
+  const outputActionsDisabled = isBusy || markdown.trim().length === 0;
 
   useEffect(() => {
     return () => {
@@ -173,8 +163,8 @@ export default function Home() {
     }, 2000);
   }
 
-  function toggleOption(key: keyof UiOptions) {
-    if (isProcessing) {
+  function toggleOption(key: keyof ConvertOptions) {
+    if (isBusy) {
       return;
     }
 
@@ -185,7 +175,11 @@ export default function Home() {
   }
 
   function handleFileSelect(file: File) {
-    const validationError = getFileValidationError(file);
+    const validationError = getFileValidationError(
+      file,
+      MAX_BLOB_UPLOAD_BYTES,
+      BLOB_UPLOAD_TOO_LARGE_MESSAGE,
+    );
 
     if (validationError) {
       handleInvalidFile(validationError);
@@ -205,19 +199,19 @@ export default function Home() {
     setError(message);
   }
 
-  function startPendingProgress() {
+  function startConversionProgress() {
     if (progressTimer.current) {
       window.clearInterval(progressTimer.current);
     }
 
-    let currentProgress = 8;
+    let currentProgress = 50;
     setProgress(currentProgress);
-    setProgressLabel("Uploading PDF\u2026");
+    setProgressLabel("Extracting PDF text\u2026");
 
     progressTimer.current = window.setInterval(() => {
-      currentProgress = Math.min(currentProgress + 4, 90);
+      currentProgress = Math.min(currentProgress + 3, 90);
       setProgress(currentProgress);
-      setProgressLabel(getPendingProgressLabel(currentProgress));
+      setProgressLabel(getConversionProgressLabel(currentProgress));
 
       if (currentProgress >= 90 && progressTimer.current) {
         window.clearInterval(progressTimer.current);
@@ -226,7 +220,7 @@ export default function Home() {
     }, 420);
   }
 
-  function stopPendingProgress() {
+  function stopProgressTimer() {
     if (progressTimer.current) {
       window.clearInterval(progressTimer.current);
       progressTimer.current = null;
@@ -234,12 +228,16 @@ export default function Home() {
   }
 
   async function handleConvertClick() {
-    if (isProcessing) {
+    if (isBusy) {
       return;
     }
 
     const file = selectedFile;
-    const validationError = getFileValidationError(file);
+    const validationError = getFileValidationError(
+      file,
+      MAX_BLOB_UPLOAD_BYTES,
+      BLOB_UPLOAD_TOO_LARGE_MESSAGE,
+    );
 
     if (validationError || !file) {
       setMarkdown("");
@@ -248,34 +246,35 @@ export default function Home() {
       return;
     }
 
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("preserveHeadings", String(options.preserveHeadings));
-    formData.append("stripWhitespace", String(options.stripWhitespace));
-    formData.append("addPageMarkers", String(options.addPageMarkers));
-    formData.append("includeMetadata", String(options.includeMetadata));
-
     setError("");
     setMarkdown("");
     setStats(defaultStats);
     setIsProcessing(true);
-    startPendingProgress();
+    setProgress(5);
+    setProgressLabel("Preparing upload\u2026");
 
     try {
-      const response = await fetch("/api/convert", {
-        method: "POST",
-        body: formData,
+      const blob = await uploadPdfToBlob(file, (uploadProgress) => {
+        const mappedProgress = Math.round(
+          5 + (Math.min(Math.max(uploadProgress, 0), 100) / 100) * 40,
+        );
+
+        setProgress(mappedProgress);
+        setProgressLabel("Uploading PDF to Blob\u2026");
       });
-      const data = (await response.json()) as ConvertResponse | ErrorResponse;
+      setProgress(45);
+      setProgressLabel("Upload complete.");
 
-      if (!response.ok) {
-        const message = "error" in data ? data.error : "Conversion failed.";
-        throw new Error(message);
-      }
+      await new Promise((resolve) => window.setTimeout(resolve, 200));
+      startConversionProgress();
 
-      if (!("markdown" in data)) {
-        throw new Error("Conversion failed.");
-      }
+      const data = await convertBlobPdf({
+        blobUrl: blob.url,
+        blobPathname: blob.pathname,
+        originalFilename: file.name,
+        pdfSizeBytes: file.size,
+        options,
+      });
 
       setMarkdown(data.markdown);
       setStats({
@@ -284,7 +283,7 @@ export default function Home() {
         tokensSaved: estimateTokensSaved(data.pdfSizeKB, data.mdSizeKB),
         pages: String(data.pages),
       });
-      stopPendingProgress();
+      stopProgressTimer();
       setProgress(100);
       setProgressLabel("Conversion complete.");
 
@@ -292,7 +291,7 @@ export default function Home() {
         setIsProcessing(false);
       }, 550);
     } catch (conversionError) {
-      stopPendingProgress();
+      stopProgressTimer();
       setMarkdown("");
       setStats(defaultStats);
       setProgress(0);
@@ -384,7 +383,7 @@ export default function Home() {
           <div className="rounded-lg border border-white/10 bg-card/90 p-5 shadow-[0_24px_70px_rgba(0,0,0,0.22)] sm:p-6">
             <UploadZone
               file={selectedFile}
-              isProcessing={isProcessing}
+              isProcessing={isBusy}
               onFileSelect={handleFileSelect}
               onInvalidFile={handleInvalidFile}
             />
@@ -394,7 +393,9 @@ export default function Home() {
                 role="alert"
                 className="mt-4 rounded-lg border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm leading-6 text-red-100"
               >
-                <span className="font-semibold text-red-50">Conversion issue: </span>
+                <span className="font-semibold text-red-50">
+                  Upload or conversion issue:{" "}
+                </span>
                 <span>{error}</span>
               </div>
             ) : null}
@@ -409,7 +410,7 @@ export default function Home() {
                     key={option.key}
                     label={option.label}
                     active={options[option.key]}
-                    disabled={isProcessing}
+                    disabled={isBusy}
                     onToggle={() => toggleOption(option.key)}
                   />
                 ))}
@@ -417,12 +418,12 @@ export default function Home() {
             </div>
 
             <div className="mt-6 space-y-4">
-              {isProcessing ? (
+              {isBusy ? (
                 <ProgressBar label={progressLabel} progress={progress} />
               ) : null}
               <button
                 type="button"
-                disabled={!selectedFile || isProcessing}
+                disabled={!selectedFile || isBusy}
                 onClick={handleConvertClick}
                 className="w-full rounded-lg bg-accent px-5 py-4 font-display text-base font-bold text-white shadow-[0_18px_45px_rgba(124,92,252,0.3)] transition hover:-translate-y-0.5 hover:bg-[#8A6DFF] disabled:cursor-not-allowed disabled:translate-y-0 disabled:bg-white/10 disabled:text-muted disabled:shadow-none"
               >

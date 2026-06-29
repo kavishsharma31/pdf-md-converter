@@ -3,14 +3,17 @@
 import { useRef, useState } from "react";
 import type { ChangeEvent, DragEvent, FormEvent, KeyboardEvent } from "react";
 
+import {
+  BLOB_UPLOAD_TOO_LARGE_MESSAGE,
+  MAX_BLOB_UPLOAD_BYTES,
+} from "@/lib/pdf/uploadLimits";
+
 type UploadZoneProps = {
   file: File | null;
   isProcessing?: boolean;
   onFileSelect: (file: File) => void;
   onInvalidFile?: (message?: string) => void;
 };
-
-const maxPdfSizeBytes = 4 * 1024 * 1024;
 
 function isPdf(file: File): boolean {
   return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
@@ -25,8 +28,8 @@ function getFileValidationError(file: File): string | null {
     return "This file appears to be empty.";
   }
 
-  if (file.size > maxPdfSizeBytes) {
-    return "PDF is too large. Please upload a file under 4MB.";
+  if (file.size > MAX_BLOB_UPLOAD_BYTES) {
+    return BLOB_UPLOAD_TOO_LARGE_MESSAGE;
   }
 
   return null;

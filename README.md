@@ -1,10 +1,22 @@
-# PDF → Markdown Converter
+# PDF -> Markdown Converter
 
-Converts text-based PDFs into clean, Claude-friendly Markdown.
+Converts text-based PDFs into clean, Claude-friendly Markdown. The app supports
+PDFs up to 25MB by uploading them directly to a private Vercel Blob store before
+server-side conversion.
 
-Scanned or image-only PDFs are not supported in this base version because they do not contain a readable text layer.
+Scanned or image-only PDFs are not supported because they do not contain a
+readable text layer. Temporary uploaded PDFs are deleted after each conversion.
+The app does not use the Claude API or OpenAI API.
 
 ## Local Dev
+
+Create `.env.local` with the required private Blob credential:
+
+```env
+BLOB_READ_WRITE_TOKEN=...
+```
+
+Then install dependencies and start the development server:
 
 ```bash
 npm install
@@ -24,16 +36,10 @@ npm run start
 
 ## Vercel Deployment
 
-1. Push the repo to GitHub.
-2. Import the repo in Vercel.
-3. Use the Next.js framework preset.
-4. No environment variables are needed.
+1. Push the repository to GitHub.
+2. Import the repository into Vercel using the Next.js framework preset.
+3. Connect a private Vercel Blob store to the project.
+4. Confirm `BLOB_READ_WRITE_TOKEN` is configured for Production, Preview, and Development.
 5. Deploy.
 
-No `vercel.json` is required for the standard deployment.
-
-## Production File Size
-
-The base version supports PDFs under 4MB because uploads go through a Vercel Function.
-
-For larger PDFs later, upload files directly to storage such as Vercel Blob or S3, then process from storage instead of sending the PDF through the function request body.
+No `vercel.json` is required for a standard Next.js deployment.
