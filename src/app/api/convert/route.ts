@@ -1,8 +1,3 @@
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
-
-import { PDFParse } from "pdf-parse";
-
 import { deleteBlob } from "@/lib/blob/deleteBlob";
 import { fetchPrivateBlobAsBuffer } from "@/lib/blob/fetchPrivateBlob";
 import { cleanPdfText } from "@/lib/pdf/cleanText";
@@ -10,6 +5,7 @@ import {
   addYamlFrontmatter,
   structureAsMarkdown,
 } from "@/lib/pdf/markdown";
+import { parsePdf } from "@/lib/pdf/parsePdf";
 import type {
   BlobConvertRequest,
   ConvertOptions,
@@ -24,32 +20,10 @@ import {
 
 export const runtime = "nodejs";
 
-PDFParse.setWorker(
-  pathToFileURL(
-    join(
-      process.cwd(),
-      "node_modules",
-      "pdfjs-dist",
-      "legacy",
-      "build",
-      "pdf.worker.mjs",
-    ),
-  ).href,
-);
-
 const scannedPdfMessage =
   "This PDF appears to be scanned. Only text-based PDFs are supported.";
 const invalidPdfMessage = "Please upload a valid PDF file.";
 const emptyFileMessage = "This file appears to be empty.";
-
-type PdfInfo = {
-  Title?: unknown;
-  Author?: unknown;
-  Subject?: unknown;
-  Creator?: unknown;
-  Producer?: unknown;
-  CreationDate?: unknown;
-};
 
 class ConvertRequestError extends Error {
   constructor(
@@ -123,7 +97,7 @@ function buildMarkdownInput(
 }
 
 function buildMetadata(
-  info: PdfInfo | undefined,
+  info: Record<string, unknown> | undefined,
   creationDate: Date | null | undefined,
   pages: number,
 ): Record<string, unknown> {
@@ -142,48 +116,41 @@ async function convertPdfBuffer(
   buffer: Buffer,
   options: ConvertOptions,
 ): Promise<ConvertResult> {
-  const parser = new PDFParse({ data: buffer });
+  const parsedPdf = await parsePdf(buffer, options.includeMetadata);
+  const extractedText =
+    parsedPdf.text || parsedPdf.pages.map((page) => page.text).join("\n\n");
+  const nonWhitespaceCharacterCount = extractedText.replace(/\s/g, "").length;
 
-  try {
-    const textResult = await parser.getText({ pageJoiner: "" });
-    const extractedText =
-      textResult.text || textResult.pages.map((page) => page.text).join("\n\n");
-    const nonWhitespaceCharacterCount = extractedText.replace(/\s/g, "").length;
-
-    if (nonWhitespaceCharacterCount < 30) {
-      throw new ConvertRequestError(scannedPdfMessage, 422);
-    }
-
-    const pages = textResult.total || textResult.pages.length || 1;
-    const rawMarkdownInput = buildMarkdownInput(
-      textResult.pages,
-      extractedText,
-      options.addPageMarkers,
-    );
-    const cleanedText = cleanPdfText(rawMarkdownInput, options.stripWhitespace);
-    let markdown = structureAsMarkdown(cleanedText, options);
-
-    if (options.includeMetadata) {
-      const infoResult = await parser.getInfo();
-      const metadata = buildMetadata(
-        infoResult.info as PdfInfo | undefined,
-        infoResult.getDateNode().CreationDate,
-        pages,
-      );
-
-      markdown = addYamlFrontmatter(markdown, metadata);
-    }
-
-    return {
-      markdown,
-      pages,
-      pdfSizeKB: Math.round((buffer.byteLength / 1024) * 10) / 10,
-      mdSizeKB:
-        Math.round((Buffer.byteLength(markdown, "utf8") / 1024) * 10) / 10,
-    };
-  } finally {
-    await parser.destroy();
+  if (nonWhitespaceCharacterCount < 30) {
+    throw new ConvertRequestError(scannedPdfMessage, 422);
   }
+
+  const pages = parsedPdf.total || parsedPdf.pages.length || 1;
+  const rawMarkdownInput = buildMarkdownInput(
+    parsedPdf.pages,
+    extractedText,
+    options.addPageMarkers,
+  );
+  const cleanedText = cleanPdfText(rawMarkdownInput, options.stripWhitespace);
+  let markdown = structureAsMarkdown(cleanedText, options);
+
+  if (options.includeMetadata) {
+    const metadata = buildMetadata(
+      parsedPdf.info,
+      parsedPdf.creationDate,
+      pages,
+    );
+
+    markdown = addYamlFrontmatter(markdown, metadata);
+  }
+
+  return {
+    markdown,
+    pages,
+    pdfSizeKB: Math.round((buffer.byteLength / 1024) * 10) / 10,
+    mdSizeKB:
+      Math.round((Buffer.byteLength(markdown, "utf8") / 1024) * 10) / 10,
+  };
 }
 
 async function handleDirectUpload(request: Request): Promise<Response> {

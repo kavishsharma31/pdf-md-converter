@@ -44,6 +44,14 @@ export async function convertBlobPdf(
       includeMetadata: input.options.includeMetadata,
     }),
   });
+  const contentType = response.headers.get("content-type") ?? "";
+
+  if (!contentType.includes("application/json")) {
+    await response.text();
+    throw new Error(
+      "Conversion endpoint returned an HTML error page instead of JSON. Check Vercel function logs for /api/convert.",
+    );
+  }
 
   const data = (await response.json()) as
     | ConvertResponse

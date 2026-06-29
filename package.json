@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^1.0.1",
     "@types/formidable": "^3.5.1",
     "@vercel/blob": "^2.5.0",
     "formidable": "^3.5.4",
